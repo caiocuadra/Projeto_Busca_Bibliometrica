@@ -1,2 +1,6 @@
-psycopg2-binary
-redis
+requests==2.31.0
+pandas==2.2.0
+scikit-learn==1.4.0
+nltk==3.8.1
+flask==3.0.0
+pyarrow>=10.0.1
