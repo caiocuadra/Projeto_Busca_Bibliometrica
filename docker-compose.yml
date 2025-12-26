@@ -1,0 +1,118 @@
+version: "3.9"
+
+services:
+  frontend:
+    container_name: frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=production
+    networks:
+      - web
+      - internal
+    labels:
+    - "traefik.enable=true"
+    - "traefik.docker.network=web"
+    - "traefik.http.routers.nlp.rule=Host(`nlp.naturaldobem.com.br`)"
+    - "traefik.http.routers.nlp.entrypoints=websecure"
+    - "traefik.http.routers.nlp.tls=true"
+    - "traefik.http.routers.nlp.tls.certresolver=letsencrypt"
+    - "traefik.http.services.nlp.loadbalancer.server.port=82"
+
+
+  api:
+    container_name: api-php
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    volumes:
+      - ./api:/var/www/html
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: app_db
+      DB_USERNAME: app_user
+      DB_PASSWORD: app_pass
+      REDIS_HOST: redis
+    networks:
+      - web
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    labels:
+    - "traefik.enable=true"
+    - "traefik.docker.network=web"
+    - "traefik.http.routers.api-nlp.rule=Host(`api-nlp.naturaldobem.com.br`)"
+    - "traefik.http.routers.api-nlp.entrypoints=websecure"
+    - "traefik.http.routers.api-nlp.tls=true"
+    - "traefik.http.routers.api-nlp.tls.certresolver=letsencrypt"
+    - "traefik.http.services.api-nlp.loadbalancer.server.port=83"
+
+
+  worker:
+    container_name: worker-python
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    volumes:
+      - ./worker:/app
+    command: python worker.py
+    environment:
+      REDIS_HOST: redis
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: app_db
+      DB_USER: app_user
+      DB_PASSWORD: app_pass
+    networks:
+      - internal
+    depends_on:
+      - redis
+      - postgres
+
+  redis:
+    container_name: redis
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+
+  postgres:
+    container_name: postgresql
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: app_db
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d app_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  web:
+    external: true
+    name: web
+  internal:
+    driver: bridge
